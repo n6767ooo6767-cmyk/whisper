@@ -22,25 +22,20 @@
 <div class="sidebox"><h3>Негласные правила</h3><ul><li>Будь бережен к чужим историям.</li><li>Не публикуй имена, адреса и контакты.</li><li>Без травли, угроз и унижения.</li><li>Если кому-то нужна помощь — поддержи и обратись к взрослому, которому доверяешь.</li></ul></div>
 <div class="sidebox"><h3>Тихое напоминание</h3><p>Твои чувства имеют значение. Не обязательно подбирать идеальные слова — достаточно честных.</p></div>
 </aside></div>
-<div class="footer">Шёпот — концепт-прототип. Истории в этой демоверсии сохраняются только в этом браузере.</div>
+<div class="footer">Шёпот — истории сохраняются на сервере в отдельных JSON-файлах.</div>
 </main><div class="toast" id="toast" role="status"></div>
 <script>
-const seed=[
-{id:'s1',text:'Сегодня незнакомый человек придержал мне дверь и пожелал хорошего дня. Вроде мелочь, а я вспоминаю это уже несколько часов.',tag:'Радость',date:Date.now()-3600000,likes:12},
-{id:'s2',text:'Кажется, я слишком часто сравниваю свой путь с чужим. Хочу научиться замечать собственный прогресс, даже если он совсем небольшой.',tag:'Мысли',date:Date.now()-7200000,likes:8},
-{id:'s3',text:'Если у тебя сейчас сложная неделя: пусть сегодня найдётся хотя бы одна спокойная минутка. Ты не обязан справляться со всем сразу.',tag:'Поддержка',date:Date.now()-15000000,likes:21}
-];
-const $=s=>document.querySelector(s);let filter='Все';
-function read(){try{return JSON.parse(localStorage.getItem('whisper-stories'))||seed}catch{return seed}}
-let stories=read();let liked=new Set(JSON.parse(localStorage.getItem('whisper-liked')||'[]'));
+const $=s=>document.querySelector(s);
+let filter='Все',stories=[],liked=new Set();
 const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function ago(t){let m=Math.max(1,Math.floor((Date.now()-t)/60000));return m<60?m+' мин. назад':m<1440?Math.floor(m/60)+' ч. назад':Math.floor(m/1440)+' дн. назад'}
-function render(){let data=stories.filter(s=>filter==='Все'||s.tag===filter).sort((a,b)=>b.date-a.date);$('#feed').innerHTML=data.length?data.map(s=>'<article class="story"><div class="story-top"><span class="tag">'+esc(s.tag)+'</span><time>'+ago(s.date)+'</time></div><p>'+esc(s.text)+'</p><div class="actions"><button class="react '+(liked.has(s.id)?'on':'')+'" data-like="'+s.id+'" aria-label="Поддержать историю">♡ '+s.likes+'</button><button class="report" data-report="'+s.id+'">Пожаловаться</button></div></article>').join(''):'<div class="empty">Пока здесь тихо. Может, начнёшь ты?</div>'}
 function toast(t){$('#toast').textContent=t;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',2300)}
+async function loadStories(){try{const res=await fetch('/api/stories');if(!res.ok)throw new Error('Не удалось загрузить истории');stories=await res.json();render()}catch(e){$('#feed').innerHTML='<div class="empty">Не удалось подключиться к серверу. Запусти приложение командой npm start.</div>';toast('Нет соединения с сервером')}}
+function render(){let data=stories.filter(s=>filter==='Все'||s.tag===filter).sort((a,b)=>b.date-a.date);$('#feed').innerHTML=data.length?data.map(s=>'<article class="story"><div class="story-top"><span class="tag">'+esc(s.tag)+'</span><time>'+ago(s.date)+'</time></div><p>'+esc(s.text)+'</p><div class="actions"><button class="react" data-like="'+s.id+'" aria-label="Поддержать историю">♡ '+(s.likes||0)+'</button><button class="report" data-report="'+s.id+'">Пожаловаться</button></div></article>').join(''):'<div class="empty">Пока здесь тихо. Может, начнёшь ты?</div>'}
 $('#storyInput').addEventListener('input',()=>{$('#count').textContent=$('#storyInput').value.length;$('#publish').disabled=!$('#storyInput').value.trim()});
-$('#publish').addEventListener('click',()=>{let text=$('#storyInput').value.trim();if(!text)return;stories.unshift({id:'u'+Date.now(),text,tag:'Мысли',date:Date.now(),likes:0});localStorage.setItem('whisper-stories',JSON.stringify(stories));$('#storyInput').value='';$('#count').textContent='0';$('#publish').disabled=true;filter='Все';document.querySelectorAll('.chip').forEach(b=>b.classList.toggle('active',b.dataset.filter==='Все'));render();toast('Твой шёпот добавлен ✨')});
+$('#publish').addEventListener('click',async()=>{let text=$('#storyInput').value.trim();if(!text)return;$('#publish').disabled=true;try{const res=await fetch('/api/stories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,tag:'Мысли'})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Ошибка публикации');$('#storyInput').value='';$('#count').textContent='0';filter='Все';document.querySelectorAll('.chip').forEach(b=>b.classList.toggle('active',b.dataset.filter==='Все'));await loadStories();toast('Твой шёпот сохранён ✨')}catch(e){toast(e.message)}finally{$('#publish').disabled=!$('#storyInput').value.trim()}});
 $('#filters').addEventListener('click',e=>{let b=e.target.closest('[data-filter]');if(!b)return;filter=b.dataset.filter;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x===b));render()});
-$('#feed').addEventListener('click',e=>{let l=e.target.closest('[data-like]');if(l){let s=stories.find(x=>x.id===l.dataset.like);if(!s)return;if(liked.has(s.id)){liked.delete(s.id);s.likes=Math.max(0,s.likes-1)}else{liked.add(s.id);s.likes++}localStorage.setItem('whisper-liked',JSON.stringify([...liked]));localStorage.setItem('whisper-stories',JSON.stringify(stories));render();return}let r=e.target.closest('[data-report]');if(r){toast('Спасибо. В полной версии жалоба уйдёт модераторам.');}});
+$('#feed').addEventListener('click',async e=>{let l=e.target.closest('[data-like]');if(l){try{const res=await fetch('/api/stories/'+encodeURIComponent(l.dataset.like)+'/like',{method:'POST'});if(!res.ok)throw new Error();await loadStories()}catch{toast('Не удалось отправить реакцию')}return}let r=e.target.closest('[data-report]');if(r)toast('Спасибо. В этой версии жалобы пока демонстрационные.')});
 $('#usePrompt').addEventListener('click',()=>{$('#storyInput').value=$('#dailyPrompt').textContent+'\n\n';$('#storyInput').dispatchEvent(new Event('input'));$('#storyInput').focus();window.scrollTo({top:0,behavior:'smooth'})});
-render();
+loadStories();
 </script></body></html>
