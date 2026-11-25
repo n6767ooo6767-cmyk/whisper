@@ -1,9 +1,0 @@
-{
-  "name": "whisper-stories",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Анонимные истории с хранением в JSON-файлах",
-  "scripts": {
-    "start": "node server.js"
-  }
-}
