@@ -26,12 +26,13 @@
 <div class="sidebox"><h3>Негласные правила</h3><ul><li>Будь бережен к чужим историям.</li><li>Не публикуй имена, адреса и контакты.</li><li>Без травли, угроз и унижения.</li><li>Если кому-то нужна помощь — поддержи и обратись к взрослому, которому доверяешь.</li></ul></div>
 <div class="sidebox"><h3>Тихое напоминание</h3><p>Твои чувства имеют значение. Не обязательно подбирать идеальные слова — достаточно честных.</p></div>
 </aside></div>
-<div class="footer">Шёпот · Vue 3 · Истории из stories.json и локальные публикации в этом браузере.</div>
+<div class="footer">Шёпот · Vue 3 · Общая лента хранится в XML-файлах GitHub.</div>
 <div v-if="toast" class="toast" style="display:block" role="status">{{ toast }}</div>
 </main>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script>
 const { createApp } = Vue;
+const API_URL = 'https://whisper-storage.n6767ooo6767.workers.dev/stories';
 createApp({
   data() {
     return {
@@ -46,18 +47,25 @@ createApp({
     }
   },
   async mounted() {
+    this.liked = JSON.parse(localStorage.getItem('whisper-liked') || '[]');
     try {
-      const response = await fetch('./stories.json');
-      if (!response.ok) throw new Error('stories.json не загрузился');
-      const seed = await response.json();
+      const [apiResponse, seedResponse] = await Promise.all([
+        fetch(API_URL),
+        fetch('./stories.json')
+      ]);
+      if (!apiResponse.ok) throw new Error('Worker API недоступен');
+      const shared = await apiResponse.json();
+      const seed = seedResponse.ok ? await seedResponse.json() : [];
       const local = JSON.parse(localStorage.getItem('whisper-stories') || '[]');
-      this.stories = [...local, ...seed];
-      this.liked = JSON.parse(localStorage.getItem('whisper-liked') || '[]');
+      const byId = new Map([...seed, ...local, ...shared].map(s => [s.id, s]));
+      this.stories = [...byId.values()];
       this.restoreLocalLikes();
     } catch (error) {
-      this.stories = JSON.parse(localStorage.getItem('whisper-stories') || '[]');
-      this.liked = JSON.parse(localStorage.getItem('whisper-liked') || '[]');
-      this.notify('Не удалось загрузить stories.json');
+      const seedResponse = await fetch('./stories.json').catch(() => null);
+      const seed = seedResponse && seedResponse.ok ? await seedResponse.json() : [];
+      const local = JSON.parse(localStorage.getItem('whisper-stories') || '[]');
+      this.stories = [...local, ...seed];
+      this.notify('Общая лента недоступна — показаны локальные истории');
     }
   },
   methods: {
@@ -71,15 +79,24 @@ createApp({
       return minutes < 60 ? minutes + ' мин. назад' : minutes < 1440 ? Math.floor(minutes/60) + ' ч. назад' : Math.floor(minutes/1440) + ' дн. назад';
     },
     isLiked(id) { return this.liked.includes(id); },
-    publish() {
+    async publish() {
       const text = this.draft.trim();
       if (!text) return;
-      const story = { id: 'local-' + Date.now(), text, tag: 'Мысли', date: Date.now(), likes: 0, local: true };
-      this.stories.unshift(story);
-      this.save();
-      this.draft = '';
-      this.filter = 'Все';
-      this.notify('Твой шёпот сохранён в этом браузере ✨');
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, tag: 'Мысли' })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Не удалось опубликовать');
+        this.stories.unshift(result.story);
+        this.draft = '';
+        this.filter = 'Все';
+        this.notify('История опубликована для всех ✨');
+      } catch (error) {
+        this.notify('Публикация не удалась: ' + error.message);
+      }
     },
     like(story) {
       if (this.isLiked(story.id)) {
